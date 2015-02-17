@@ -4,14 +4,14 @@ interface with events through the event name
 
 the elegance here:
     dump a bunch of events in and it schedules for you
+    schedules stuff you don't want to do first, to get it out of the way
 
-when you enter an event, it asks:
-    1) one time or recurring
-    2) how much time you think it'll take
-    3) a category/thread (optional)
-    4) a set time/duration (optional)
-    5) due date (optional)
-i.e. a difference between fixed and variable events
+todo:
+Preferences
+Google calendar integration
+Summary output
+
+simple json file logging right now
 '''
 
 
