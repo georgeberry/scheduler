@@ -1,173 +1,193 @@
-import datetime, sqlite3, argparse, json
-'''
-interface with events through the event name
+#!/usr/local/bin/python3
+import argparse
+import sqlite3
+import datetime
+import json
 
-the elegance here:
-    dump a bunch of events in and it schedules for you
-    schedules stuff you don't want to do first, to get it out of the way
+"""
+Command line task scheduler
 
-todo:
-Preferences
-Google calendar integration
-Summary output
+Argparse (and subclases) should get inputs ready to user
 
-simple json file logging right now
-'''
+Flags:
+    --start -s: task start time, takes datetime and converts to unix
+    --end -e: task end time, takes datetime and converts to unix
+    --repeat -r: daily, weekly, monthly, yearly
+    --name -n: unique name for task
+    --list -l: print tasks to command line in order of start time
 
+Stretch goals:
+    1) Pretty print
+    2) Google Calendar integration via API
+    3) Collab
 
-#file locations
+~
 
-all_events_path = 'data/all_events.json'
-active_events_path = 'data/active_events.json'
-preferences_path = 'data/preferences.json'
+Can we add support for: "today", "this" and "next". i.e. this monday
 
+Can we use a symbol to separate date and time
+I.e. 'this monday; 12:00'
+"""
+# sqlite3 class
 
-#parser
+class SQLHandler:
+    """
+    Creates table, manages SQLite connection
+    """
+    def __init__(
+        self,
+        dbpath='/Users/g/Google Drive/independent-work/scheduler/testdb.db'
+    ):
+        self.conn = sqlite3.connect(dbpath)
 
-parser = argparse.ArgumentParser(description='Schedule your tasks')
-
-#add/delete events
-parser.add_argument('-a', '--add', nargs='+', help='add events separated by ^')
-parser.add_argument('-f', '--finish', nargs='+')
-
-#diagnostics
-parser.add_argument('-p', '--preferences')
-parser.add_argument('-l', '--list') #list all
-
-#summarize
-parser.add_argument('-t', '--today')
-parser.add_argument('-w', '--week')
-parser.add_argument('-m', '--month')
-
-
-#class
-
-class Event:
-    def __init__(self, name, duration, start_time, due_date, recurrence, category, desire):
-        self.name = name
-        self.duration = duration
-        self.start_time = start_time
-        self.due_date = due_date
-        self.recurrence = recurrence
-        self.category = category
-        self.desire = desire
-
-    def as_dict(self):
-        d = {
-            'name': self.name,
-            'duration': self.duration,
-            'start time': self.start_time,
-            'due date': self.due_date,
-            'recurrence': self.recurrence,
-            'category': self.category,
-            'desire': self.desire
-        }
-        return d
-
-    def pretty_print(self):
-        pass
-
-
-#functions
-
-def load_json_file(filepath):
-    try:
-        with open(filepath, 'rb') as f:
-            return json.load(f)
-    except Exception as e:
-        print e
-        with open(filepath, 'wb') as f:
-            f.write(json.dumps({}))
-            print('created file')
-        return {}
-
-
-def save_json_file(data, filepath):
-    with open(filepath, 'wb') as f:
-        f.write(json.dumps(data))
-
-
-def gather_arguments(arg_list):
-    args = []
-
-    whole_arg = ''
-    for arg in arg_list:
-        if arg != '^':
-            whole_arg += arg + ' '
+    def execute(self, query, args=None):
+        c = self.conn.cursor()
+        if args:
+            c.execute(query, args)
         else:
-            args.append(whole_arg.strip())
-            whole_arg = ''
+            c.execute(query)
+        self.conn.commit()
 
-    if whole_arg != '':
-        args.append(whole_arg.strip())
+    def create_table(self):
+        schema = """
+            CREATE TABLE tasks (
+                name text,
+                start timestamp,
+                end timestamp
+            )
+        """
+        self.execute(schema)
 
-    return args
+    def insert_row(self, name, start, end):
+        args = (name, start, end)
+        query = """
+            INSERT INTO tasks VALUES (
+                ?,
+                ?,
+                ?
+            )
+        """
+        self.execute(query, args)
 
-def create_event(name):
-    duration = raw_input('How many hours do you estimate {} will take? '.format(name))
-    start_time = raw_input('Does {} have a defined start time? '.format(name))
-    due_date = raw_input('Does {} have a due date? '.format(name))
-    recurrence = raw_input('What days of the week does {} recur on? '.format(name))
-    category = raw_input('Does {} belong to a larger project? '.format(name))
-    desire = raw_input('From 1-10, how much do you want to do {}?'.format(name))
+    def remove_rows(self, name):
+        args = (name,) # godda be a tuple
+        query = """
+            DELETE FROM tasks
+            WHERE name=?
+        """
+        self.execute(query, (name,))
 
-    event = Event(name, duration, start_time, due_date, recurrence, category, desire).as_dict()
+    def print_table(self):
+        c = self.conn.cursor()
+        for row in c.execute('SELECT * FROM tasks'):
+            print(row)
+        self.conn.close()
 
-    return event
+# wrap sql stuff in functions
+def add_to_table(args):
+    s = SQLHandler()
+    s.insert_row(
+        args.name[0],
+        args.start[0],
+        args.end[0],
+    )
 
+def print_table(args):
+    s = SQLHandler()
+    s.print_table()
 
-def add_event(event, all_events, active_events):
-    name = event['name']
-    if name not in all_events:
-        all_events[name] = event
-        print('Success at inserting {} into all_events!'.format(name))
-    else:
-        print('Event {} already exists!'.format(name))
-    if name not in active_events:
-        active_events[name] = event
-        print('Success at inserting {} into active_events!'.format(name))
-    else:
-        print('Event {} already exists!'.format(name))
+def create_table():
+    pass
 
+def delete_table():
+    pass
 
-def finish_event(name, active_events):
-    if name in active_events:
-        active_events.pop(name)
-        print('Success!')
-    else:
-        print('Event {} is not active!'.format(name))
+def remove_from_table(args):
+    s = SQLHandler()
+    s.remove_rows(
+        args.name[0],
+    )
 
+# argparse stuff
 
-def list_active(active_events):
+class ParseDateAction(argparse.Action):
+    def __call__(self, parser, namespace, value, option_string=None):
+        date_value = self.date_parse(value)
+        setattr(namespace, self.dest, date_value)
 
+    @staticmethod
+    def date_parse(date_string):
+        # todo: date parsing goes here
+        return date_string
 
+parser = argparse.ArgumentParser(
+    description='Command line task scheduler'
+)
+
+subparsers = parser.add_subparsers(help='sub-command help')
+
+# add task stuff
+
+parser_add = subparsers.add_parser('add', help='create')
+parser_add.add_argument(
+    '--name', '-n',
+    type=str,
+    nargs=1,
+    metavar='N',
+    help='Task name.'
+)
+parser_add.add_argument(
+    '--start', '-s',
+    type=str,
+    nargs=1,
+    action=ParseDateAction,
+    metavar='YY-MM-DD-HH',
+    help='Start time of task in YY-MM-DD-HH format.'
+)
+parser_add.add_argument(
+    '--end', '-e',
+    type=str,
+    nargs=1,
+    action=ParseDateAction,
+    metavar='YY-MM-DD-HH',
+    help='End time of task in YY-MM-DD-HH format.'
+)
+parser_add.add_argument(
+    '--repeat', '-r',
+    type=str,
+    choices=['daily', 'weekly', 'monthly', 'yearly'],
+    nargs=1,
+    metavar='FREQ',
+    help='How often to repeat the task. Choose from: daily, weekly, monthly, yearly. If no --occ -o flag is specified, assumes 7 repeats.',
+)
+parser_add.add_argument(
+    '--occ', '-o',
+    type=int,
+    nargs=1,
+    default=1,
+    metavar='OCC',
+    help='How many repeat occurrences. Defaults to 1. Ignored if no --repeat -r flag is specified.'
+)
+parser_add.set_defaults(func=add_to_table)
+
+# remove task
+
+parser_rm = subparsers.add_parser('rm', help='delete help')
+parser_rm.add_argument(
+    '--name', '-n',
+    type=str,
+    nargs=1,
+    metavar='N',
+    help='Task name.'
+)
+parser_rm.set_defaults(func=remove_from_table)
+
+# print upcoming stuff
+
+parser_list = subparsers.add_parser('list', help='list help')
+parser_list.set_defaults(func=print_table)
 
 if __name__ == '__main__':
-    parsed_arguments = parser.parse_args()
-    all_events = load_json_file(all_events_path)
-    active_events = load_json_file(active_events_path)
-
-    print parsed_arguments.add
-
-    if parsed_arguments.add:
-        to_add = gather_arguments(parsed_arguments.add)
-        print to_add
-        for arg in to_add:
-            event = create_event(arg)
-            add_event(event, all_events, active_events)
-
-
-
-    if parsed_arguments.finish:
-        pass
-    if parsed_arguments.list:
-        pass
-    if parsed_arguments.month:
-        pass
-    if parsed_arguments.today:
-        pass
-    if parsed_arguments.week:
-        pass
-
-    save_json_file(all_events, all_events_path)
-    save_json_file(active_events, active_events_path)
+    args = parser.parse_args()
+    # route everything through the default function for the subparser
+    args.func(args)
